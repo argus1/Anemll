@@ -98,8 +98,31 @@ public actor ModelLoader {
         }
     }
     
-    private static func loadMLModel(at url: URL, configuration: MLModelConfiguration) throws -> MLModel {
-        try MLModel(contentsOf: url, configuration: configuration)
+    private static func loadMLModel(
+        at url: URL,
+        configuration: MLModelConfiguration,
+        functionName: String? = nil
+    ) throws -> MLModel {
+        configuration.functionName = functionName
+
+        do {
+            return try MLModel(contentsOf: url, configuration: configuration)
+        } catch {
+            guard let functionName, shouldRetryWithoutFunctionName(error) else {
+                throw error
+            }
+
+            print("⚠️ Model \(url.lastPathComponent) rejected function '\(functionName)'; retrying with default function")
+            configuration.functionName = nil
+            return try MLModel(contentsOf: url, configuration: configuration)
+        }
+    }
+
+    private static func shouldRetryWithoutFunctionName(_ error: Error) -> Bool {
+        let message = String(reflecting: error).lowercased()
+        return message.contains("functionname")
+            || message.contains("function_name")
+            || message.contains("model type is ml program")
     }
 
     /// Helper class to avoid data races with currentProgress
@@ -340,9 +363,12 @@ public actor ModelLoader {
 
                 // Multi-function model: load infer and prefill functions separately.
                 print("Loading inference chunk \(i): \(chunkPath)")
-                modelConfig.functionName = "infer"
                 do {
-                    inferModel = try ModelLoader.loadMLModel(at: ffnURL, configuration: modelConfig)
+                    inferModel = try ModelLoader.loadMLModel(
+                        at: ffnURL,
+                        configuration: modelConfig,
+                        functionName: "infer"
+                    )
                     print("✅ Inference chunk \(i) loaded")
                 } catch {
                     print("❌ Error loading inference chunk \(i): \(error)")
@@ -362,9 +388,12 @@ public actor ModelLoader {
                 )
 
                 print("Loading prefill chunk \(i): \(chunkPath)")
-                modelConfig.functionName = "prefill"
                 do {
-                    prefillModel = try ModelLoader.loadMLModel(at: ffnURL, configuration: modelConfig)
+                    prefillModel = try ModelLoader.loadMLModel(
+                        at: ffnURL,
+                        configuration: modelConfig,
+                        functionName: "prefill"
+                    )
                     print("✅ Prefill chunk \(i) loaded")
                 } catch {
                     print("❌ Error loading prefill chunk \(i): \(error)")
@@ -380,17 +409,23 @@ public actor ModelLoader {
                 // Try to load rotation functions (4-function model for Gemma3 with sliding window)
                 if configCopy.slidingWindow != nil {
                     print("Sliding window configured, attempting to load rotation functions...")
-                    modelConfig.functionName = "infer_rotate"
                     do {
-                        inferRotateModel = try ModelLoader.loadMLModel(at: ffnURL, configuration: modelConfig)
+                        inferRotateModel = try ModelLoader.loadMLModel(
+                            at: ffnURL,
+                            configuration: modelConfig,
+                            functionName: "infer_rotate"
+                        )
                         print("✅ Inference rotate chunk \(i) loaded")
                     } catch {
                         print("ℹ️ Inference rotate function not available (2-function model)")
                     }
 
-                    modelConfig.functionName = "prefill_rotate"
                     do {
-                        prefillRotateModel = try ModelLoader.loadMLModel(at: ffnURL, configuration: modelConfig)
+                        prefillRotateModel = try ModelLoader.loadMLModel(
+                            at: ffnURL,
+                            configuration: modelConfig,
+                            functionName: "prefill_rotate"
+                        )
                         print("✅ Prefill rotate chunk \(i) loaded")
                     } catch {
                         print("ℹ️ Prefill rotate function not available (2-function model)")
@@ -505,9 +540,12 @@ public actor ModelLoader {
 
         // Multi-function model: load infer and prefill functions separately.
         print("Loading monolithic infer function...")
-        modelConfig.functionName = "infer"
         do {
-            inferModel = try ModelLoader.loadMLModel(at: monolithicURL, configuration: modelConfig)
+            inferModel = try ModelLoader.loadMLModel(
+                at: monolithicURL,
+                configuration: modelConfig,
+                functionName: "infer"
+            )
             print("✅ Monolithic infer function loaded")
         } catch {
             print("❌ Error loading monolithic infer function: \(error)")
@@ -527,9 +565,12 @@ public actor ModelLoader {
         )
 
         print("Loading monolithic prefill function...")
-        modelConfig.functionName = "prefill"
         do {
-            prefillModel = try ModelLoader.loadMLModel(at: monolithicURL, configuration: modelConfig)
+            prefillModel = try ModelLoader.loadMLModel(
+                at: monolithicURL,
+                configuration: modelConfig,
+                functionName: "prefill"
+            )
             print("✅ Monolithic prefill function loaded")
         } catch {
             print("❌ Error loading monolithic prefill function: \(error)")
@@ -546,17 +587,23 @@ public actor ModelLoader {
         if let slidingWindow = config.slidingWindow, config.contextLength > slidingWindow {
             print("Loading optional monolithic rotate functions...")
 
-            modelConfig.functionName = "infer_rotate"
             do {
-                inferRotateModel = try ModelLoader.loadMLModel(at: monolithicURL, configuration: modelConfig)
+                inferRotateModel = try ModelLoader.loadMLModel(
+                    at: monolithicURL,
+                    configuration: modelConfig,
+                    functionName: "infer_rotate"
+                )
                 print("✅ Monolithic infer_rotate function loaded")
             } catch {
                 print("⚠️ Monolithic infer_rotate function unavailable: \(error)")
             }
 
-            modelConfig.functionName = "prefill_rotate"
             do {
-                prefillRotateModel = try ModelLoader.loadMLModel(at: monolithicURL, configuration: modelConfig)
+                prefillRotateModel = try ModelLoader.loadMLModel(
+                    at: monolithicURL,
+                    configuration: modelConfig,
+                    functionName: "prefill_rotate"
+                )
                 print("✅ Monolithic prefill_rotate function loaded")
             } catch {
                 print("⚠️ Monolithic prefill_rotate function unavailable: \(error)")
